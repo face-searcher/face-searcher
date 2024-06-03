@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from scipy.spatial.distance import cosine
+import sqlite3
 
 # MTCNN 모델 로드 (얼굴 검출)
 mtcnn = MTCNN(keep_all=True)
@@ -10,10 +11,10 @@ mtcnn = MTCNN(keep_all=True)
 # InceptionResnetV1 모델 로드 (FaceNet)
 model = InceptionResnetV1(pretrained='vggface2').eval()
 
-# npz 파일에서 알려진 얼굴 임베딩 및 레이블 로드
-data = np.load("C:/Projects/Python/trainEmbeds.npz")
-known_embeddings = data['x']
-labels = data['y']
+# # npz 파일에서 알려진 얼굴 임베딩 및 레이블 로드
+# data = np.load("C:/Users/Minje/Desktop/faces/trainEmbeds.npz")
+# known_embeddings = data['x']
+# labels = data['y']
 
 # 얼굴 임베딩 함수
 def get_embedding(model, face):
@@ -21,6 +22,24 @@ def get_embedding(model, face):
     with torch.no_grad():
         embedding = model(face)
     return embedding[0].cpu().numpy()
+
+
+# 데이터베이스 연결 및 임베딩 로드
+conn = sqlite3.connect('faces.db')
+c = conn.cursor()
+
+c.execute('SELECT name, embedding FROM faces')
+data = c.fetchall()
+
+known_embeddings = []
+labels = []
+
+for name, embedding in data:
+    known_embeddings.append(np.frombuffer(embedding, dtype=np.float32))
+    labels.append(name)
+
+known_embeddings = np.array(known_embeddings)
+labels = np.array(labels)
 
 # 웹캠 초기화
 cap = cv2.VideoCapture(0)
@@ -62,3 +81,6 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+
+# 데이터베이스 연결 종료
+conn.close()

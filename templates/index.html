@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>얼굴탐험대</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            text-align: center;
+        }
+        #cameraview {
+            border: 2px solid white;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .button-container {
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>얼굴탐험대</h1>
+    <div style="position: relative;">
+        <video id="cameraview" width="720" height="480" autoplay></video>
+        <canvas id="canvas" width="720" height="480"></canvas>
+    </div>
+    <div class="button-container">
+        <button id="openBtn">얼굴인식 시작하기</button>
+        <button id="closeBtn">종료</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <script>
+        const video = document.getElementById('cameraview');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const socket = io('http://127.0.0.1:5000'); // 웹소켓 서버 URL을 올바르게 설정
+
+        let streamVideo;
+        let intervalId;
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("Media Device not supported");
+        } else {
+            document.getElementById("openBtn").addEventListener('click', open);
+            document.getElementById("closeBtn").addEventListener('click', close);
+        }
+
+        function open() {
+            close();
+            navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                streamVideo = stream;
+                video.srcObject = stream;
+                video.play();
+
+                video.addEventListener('play', () => {
+                    const fps = 1;  // FPS를 1로 낮추어 더 안정적으로 처리
+                    intervalId = setInterval(() => {
+                        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        const imageData = canvas.toDataURL('image/jpeg');
+                        console.log("Sending image data");  // 디버깅 로그 추가
+                        socket.emit('image', imageData.split(',')[1]);
+                    }, 1000 / fps);
+                });
+            });
+        }
+
+        function close() {
+            if (streamVideo) {
+                const tracks = streamVideo.getTracks();
+                tracks.forEach(track => track.stop());
+                streamVideo = null;
+            }
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+        }
+
+        socket.on('response_back', data => {
+            console.log("Received response", data);  // 디버깅 로그 추가
+            context.clearRect(0, 0, canvas.width, canvas.height);  // 캔버스 초기화
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            data.faces.forEach(face => {
+                if (face.label !== 'No face detected') {
+                    const [x1, y1, x2, y2] = face.box;
+                    context.strokeStyle = face.color;  // 서버에서 받은 색상 사용
+                    context.lineWidth = 2;
+                    context.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                    context.font = '20px Arial';
+                    context.fillStyle = face.color;  // 서버에서 받은 색상 사용
+                    context.fillText(`${face.label} (${face.accuracy.toFixed(2)}%)`, x1, y1 - 10);  // 정확도 표시
+                } else {
+                    console.log('No face detected');
+                }
+            });
+        });
+
+        // 연결 오류 이벤트 핸들러 추가
+        socket.on('connect_error', (err) => {
+            console.error('Connection Error:', err);
+            alert('서버와의 연결에 실패했습니다.');
+        });
+    </script>
+</body>
+</html>
